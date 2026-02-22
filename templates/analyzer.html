@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analizator Rozdania</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="nav">
+        <a href="/">🏠 Wróć do Lobby</a>
+    </div>
+
+    <h2>Karty na stole (Runda {{ round_num }})</h2>
+
+    <div class="hands-board">
+        <div class="hand-n"><b>N:</b> <span id="cards-N">Ładowanie...</span></div>
+        <div class="hand-w"><b>W:</b> <span id="cards-W">Ładowanie...</span></div>
+        <div class="hand-e"><b>E:</b> <span id="cards-E">Ładowanie...</span></div>
+        <div class="hand-s"><b>S:</b> <span id="cards-S">Ładowanie...</span></div>
+    </div>
+
+    <div class="action-grid">
+        <button class="tool-btn btn-clear" onclick="actionClear()">🗑️ Wyczyść</button>
+        <button class="tool-btn btn-random" onclick="actionRandom()">🎲 Losuj</button>
+        <button class="tool-btn btn-manual" onclick="actionManual()">✍️ Wpisz ręcznie</button>
+        <button class="tool-btn btn-cv" onclick="actionDetect()">📷 Uruchom detekcję</button>
+    </div>
+
+    <button id="btn-analyze" class="active" onclick="runSolver()">ANALIZUJ</button>
+    <div id="status" style="margin-top: 10px; color: #888;">Gotowy</div>
+
+    <div class="dds-container">
+        <table id="dds-table" class="dds-table">
+            <thead>
+                <tr>
+                    <th>Kontrakt</th>
+                    <th>N</th>
+                    <th>S</th>
+                    <th>E</th>
+                    <th>W</th>
+                </tr>
+            </thead>
+            <tbody id="dds-body">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Pobieranie aktualnych kart z serwera po załadowaniu strony
+        function loadHands() {
+            fetch('/api/get_hands')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('cards-N').innerText = formatHand(data.N);
+                document.getElementById('cards-S').innerText = formatHand(data.S);
+                document.getElementById('cards-E').innerText = formatHand(data.E);
+                document.getElementById('cards-W').innerText = formatHand(data.W);
+            });
+        }
+
+        // Pomocnicza funkcja do ładnego formatowania list kart (np. AS, KS -> A♠ K♠)
+        function formatHand(cards) {
+            if (!cards || cards.length === 0) return "Brak kart";
+            return cards.join(' ').replace(/S/g, '♠').replace(/H/g, '♥').replace(/D/g, '♦').replace(/C/g, '♣');
+        }
+
+        // --- AKCJE NARZĘDZIOWE (Przygotowane pod przyszły backend) ---
+        function actionClear() { alert("Funkcja: Czyszczenie stołu..."); }
+        function actionRandom() { alert("Funkcja: Losowanie kart..."); }
+        function actionManual() { alert("Funkcja: Ręczne wprowadzanie..."); }
+        function actionDetect() { alert("Funkcja: Start OpenCV kamery..."); }
+
+		// Funkcja wywoływana po otrzymaniu udanej odpowiedzi 'result' z /api/solve
+		function renderDDSTable(dd_table_data) {
+		    const tbody = document.getElementById('dds-body');
+		    tbody.innerHTML = ''; // Wyczyszczenie tabeli przed nowym renderowaniem
+		
+		    // Kolejność wyświetlania: NT, Pik, Kier, Karo, Trefl
+		    const suits = ["NT", "Pik", "Kier", "Karo", "Trefl"];
+		
+		    suits.forEach(suit => {
+		        if (dd_table_data[suit]) {
+		            const tr = document.createElement('tr');
+		            
+		            // Komórka z nazwą koloru
+		            const tdSuit = document.createElement('td');
+		            tdSuit.textContent = suit;
+		            tdSuit.style.fontWeight = "bold";
+		            tr.appendChild(tdSuit);
+		
+		            // Komórki z wynikami N, S, E, W
+		            ['N', 'S', 'E', 'W'].forEach(player => {
+		                const td = document.createElement('td');
+		                td.textContent = dd_table_data[suit][player];
+		                tr.appendChild(td);
+		            });
+		
+		            tbody.appendChild(tr);
+		        }
+		    });
+		}
+		
+	
+
+
+        // --- GŁÓWNA ANALIZA ---
+        function runSolver() {
+            const box = document.getElementById('results-box');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('btn-analyze');
+            
+            btn.innerText = "LICZENIE...";
+            btn.classList.remove('active');
+            status.innerText = "Analiza w toku...";
+            box.style.display = 'block';
+            box.innerText = "Pobieranie danych z silnika DDS...";
+            
+            fetch('/api/solve', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'ok') {
+                    let output = "      N   S   E   W\\n";
+                    output += "    ----------------\\n";
+                    const suits = ["NT", "Pik", "Kier", "Karo", "Trefl"];
+                    suits.forEach(suit => {
+                        let sName = suit.padEnd(5, ' ');
+                        let n = data.dd_table[suit].N.toString().padStart(2, ' ');
+                        let s = data.dd_table[suit].S.toString().padStart(2, ' ');
+                        let e = data.dd_table[suit].E.toString().padStart(2, ' ');
+                        let w = data.dd_table[suit].W.toString().padStart(2, ' ');
+                        output += `${sName}| ${n}  ${s}  ${e}  ${w}\\n`;
+                    });
+                    output += "\\n=====================\\n";
+                    output += "KONTRAKT: " + data.par_result.optimal_contract + "\\n";
+                    output += "WYNIK:    " + data.par_result.score + "\\n";
+                    output += "PARTIA:   " + data.par_result.vulnerability;
+                    box.innerText = output;
+                    status.innerText = "Zakończono sukcesem.";
+                } else {
+                    box.innerText = "BŁĄD: " + data.message;
+                    box.style.color = "red";
+                }
+                btn.innerText = "ANALIZUJ PONOWNIE";
+                btn.classList.add('active');
+            })
+            .catch(err => {
+                box.innerText = "Błąd sieci: " + err;
+                status.innerText = "Awaria";
+                btn.innerText = "ANALIZUJ PONOWNIE";
+                btn.classList.add('active');
+            });
+        }
+
+        // Uruchom ładowanie kart na starcie
+        loadHands();
+    </script>
+</body>
+</html>

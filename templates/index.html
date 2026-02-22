@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JBerry Lobby</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <h1>JBerry Lobby</h1>
+
+    <div class="round-control">
+        Rozdanie: <input type="number" id="roundInput" value="1" min="1" max="100" onchange="updateRound()">
+    </div>
+
+    <div class="table-container">
+        <div id="seat-N" class="seat seat-n free" onclick="toggleSeat('N')"><span>N</span></div>
+        <div id="seat-W" class="seat seat-w free" onclick="toggleSeat('W')"><span>W</span></div>
+        
+        <div class="center-table" id="magic-table" onclick="handleTableClick()">
+            <span id="table-vuln" class="vuln-info"></span>
+            STÓŁ
+        </div>
+        
+        <div id="seat-E" class="seat seat-e free" onclick="toggleSeat('E')"><span>E</span></div>
+        <div id="seat-S" class="seat seat-s free" onclick="toggleSeat('S')"><span>S</span></div>
+    </div>
+
+    <div class="btn-group">
+        <button id="btn-play" onclick="goToGame(false)">OCZEKIWANIE (0/4)</button>
+        <button id="btn-solo" onclick="goToGame(true)">🧪 SZYBKA ANALIZA</button>
+        
+        <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+            <a href="/history" style="color:#aaa; text-decoration:none;">📜 Historia</a>
+            <a href="/help" style="color:#aaa; text-decoration:none;">❓ Pomoc</a>
+        </div>
+    </div>
+
+    <div id="dev-panel">
+        <div class="dev-title">🛠️ Dev Mode</div>
+        <button class="dev-btn" onclick="devFillSeats()">Wypełnij botami (4/4)</button>
+        <button class="dev-btn" onclick="devClearSeats()">Wyczyść stół</button>
+        <button class="dev-btn" style="background: #500; border-color: red; color: red;" onclick="devShutdown()">💀 Wyłącz RPi</button>
+    </div>
+
+    <script>
+        let isTableFull = false;
+        
+        // Zmienne do obsługi 5 kliknięć
+        let clickCount = 0;
+        let clickTimer = null;
+
+        // Funkcja magiczna
+        function handleTableClick() {
+            clickCount++;
+            
+            // Reset licznika jeśli nie klikniesz w ciągu 2 sekund
+            clearTimeout(clickTimer);
+            clickTimer = setTimeout(() => { clickCount = 0; }, 2000);
+
+            if (clickCount >= 5) {
+                document.getElementById('dev-panel').style.display = 'block';
+                alert("Tryb Developerski Aktywny!");
+                clickCount = 0;
+            }
+        }
+
+        // --- Funkcje Dev ---
+        function devFillSeats() {
+            fetch('/api/dev/fill_seats', { method: 'POST' }).then(() => refreshStatus());
+        }
+        function devClearSeats() {
+            fetch('/api/dev/clear_seats', { method: 'POST' }).then(() => refreshStatus());
+        }
+        function devShutdown() {
+            if(confirm("Czy na pewno chcesz wyłączyć urządzenie?")) {
+                fetch('/api/dev/shutdown', { method: 'POST' });
+                alert("Wysyłanie sygnału wyłączenia...");
+            }
+        }
+
+        // --- Standardowe funkcje ---
+        function refreshStatus() {
+            fetch('/api/lobby_status')
+            .then(r => r.json())
+            .then(data => {
+                let count = 0;
+                
+                // Czyszczenie starych wskaźników Dealera i Założeń
+                document.querySelectorAll('.dealer-badge').forEach(e => e.remove());
+                
+                ['N', 'S', 'E', 'W'].forEach(pos => {
+                    const status = data.seats[pos]; 
+                    const el = document.getElementById('seat-' + pos);
+                    
+                    // 1. Reset podstawowych klas
+                    el.classList.remove('free', 'mine', 'taken', 'vulnerable');
+                    el.classList.add(status);
+                    
+                    if(status !== 'free') count++;
+                    
+                    // 2. Dodawanie wskaźnika Dealera
+                    if (data.dealer === pos) {
+                        const badge = document.createElement('div');
+                        badge.className = 'dealer-badge';
+                        badge.innerText = 'D';
+                        el.appendChild(badge);
+                    }
+        
+                    // 3. Oznaczanie założeń (Vulnerable)
+                    const v = data.vulnerability;
+                    if (v === "Both" || (v === "NS" && (pos === "N" || pos === "S")) || (v === "EW" && (pos === "E" || pos === "W"))) {
+                        el.classList.add('vulnerable');
+                    }
+                });
+        
+                // 4. Tekst na środku stołu
+                const vulnText = { "None": "PRZED PARTIĄ", "NS": "NS PO PARTII", "EW": "EW PO PARTII", "Both": "OBIE PO PARTII" };
+                document.getElementById('table-vuln').innerText = vulnText[data.vulnerability] || "";
+        
+                // Reszta logiki bez zmian
+                if(document.activeElement.id !== "roundInput") {
+                    document.getElementById('roundInput').value = data.round;
+                }
+        
+                const btn = document.getElementById('btn-play');
+                isTableFull = data.ready_to_play;
+                
+                if (isTableFull) {
+                    btn.classList.add('active');
+                    btn.innerText = "GRAJ (4/4)";
+                    btn.disabled = false;
+                } else {
+                    btn.classList.remove('active');
+                    btn.innerText = `OCZEKIWANIE (${count}/4)`;
+                    btn.disabled = true;
+                }
+            });
+        }
+
+        function toggleSeat(pos) {
+            fetch('/api/toggle_seat/' + pos, { method: 'POST' }).then(() => refreshStatus());
+        }
+
+        function updateRound() {
+            const val = document.getElementById('roundInput').value;
+            fetch('/api/set_round', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ round: val })
+            });
+        }
+
+        function goToGame(soloMode) {
+            if (soloMode || isTableFull) window.location.href = "/analyzer?mode=" + (soloMode ? "solo" : "multi");
+        }
+
+        setInterval(refreshStatus, 1000);
+        refreshStatus();
+    </script>
+</body>
+</html>

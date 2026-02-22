@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Historia Rozdań</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="nav"><a href="/">🏠 Wróć do Lobby</a></div>
+
+    <h2>Historia Analiz</h2>
+
+    {% if history %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Godz.</th>
+                    <th>Rozd.</th>
+                    <th>Kontrakt</th>
+                    <th>Wynik</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in history %}
+                <tr>
+                    <td>{{ item.time }}</td>
+                    <td>#{{ item.round }}</td>
+                    <td>{{ item.contract }}</td>
+                    <td class="score-plus">{{ item.score }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-msg">Brak zapisanych wyników w tej sesji.</div>
+    {% endif %}
+
+</body>
+</html>
